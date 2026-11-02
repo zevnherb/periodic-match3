@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>元素周期表同族三消</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:rgba(18,22,30,.92); --line:rgba(255,255,255,.10);
+    --ink:#e8ecf4; --muted:#7f8a9e; --accent:#6ea8ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;background:radial-gradient(120% 90% at 50% 0%,#172133 0%,#0d1219 48%,#080a0e 100%);
+    color:var(--ink);font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;padding:16px;overflow:hidden;
+  }
+  .head{width:min(94vw,520px);display:flex;justify-content:space-between;align-items:flex-end}
+  h1{margin:0;font-size:20px;font-weight:650;letter-spacing:.02em}
+  .sub{font-size:12px;color:var(--muted);margin-top:4px}
+  .score{text-align:right;font-variant-numeric:tabular-nums}
+  .score b{display:block;font-size:26px;line-height:1.1}
+  .score span{font-size:11.5px;color:var(--muted);letter-spacing:.1em}
+
+  .wrap{position:relative}
+  .grid{
+    display:grid;grid-template-columns:repeat(8,1fr);gap:7px;
+    background:rgba(9,12,18,.7);border:1px solid var(--line);border-radius:16px;padding:10px;
+    box-shadow:0 24px 60px rgba(0,0,0,.55);
+    width:min(92vw,520px);aspect-ratio:1;
+  }
+  .tile{
+    border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    cursor:pointer;user-select:none;position:relative;transition:transform .12s, box-shadow .12s;
+    border:1px solid rgba(255,255,255,.10);
+    font-variant-numeric:tabular-nums;
+  }
+  .tile .sym{font-size:clamp(15px,3.4vw,21px);font-weight:750;line-height:1}
+  .tile .num{font-size:clamp(7px,1.5vw,9.5px);opacity:.5;margin-top:2px}
+  .tile:hover{transform:scale(1.04)}
+  .tile.sel{box-shadow:0 0 0 2px #fff inset,0 0 18px rgba(110,168,255,.7);transform:scale(1.06)}
+  .tile.hint{animation:pulse 1s ease-in-out infinite}
+  .tile.pop{animation:pop .22s ease-out}
+  .tile.drop{animation:drop .18s ease-out}
+  @keyframes pop{to{transform:scale(.2);opacity:0}}
+  @keyframes drop{from{transform:translateY(-22px);opacity:.2}}
+  @keyframes pulse{50%{box-shadow:0 0 0 2px var(--accent) inset}}
+
+  .g0{background:linear-gradient(160deg,#7a3b30,#4a231c);color:#ffd2c4}
+  .g1{background:linear-gradient(160deg,#2f6b46,#1a3f28);color:#bff0d2}
+  .g2{background:linear-gradient(160deg,#4f3a7a,#2c2046);color:#dcc9ff}
+  .g3{background:linear-gradient(160deg,#2f4d7a,#1a2a46);color:#c2d8ff}
+  .g4{background:linear-gradient(160deg,#7a6428,#453615);color:#ffe9a8}
+  .g5{background:linear-gradient(160deg,#454c5c,#232830);color:#d5dae4}
+
+  /* 无色模式：所有格子统一灰阶，只能靠周期表知识判断同族 */
+  .grid.nocolor .tile{
+    background:linear-gradient(160deg,#252d3b,#161d27);
+    color:#cdd7e6;border-color:rgba(255,255,255,.13)
+  }
+  .grid.nocolor .tile:hover{transform:scale(1.04);background:linear-gradient(160deg,#2e3849,#1b2330)}
+  .legend.nocolor i{opacity:.18}
+
+  .bar{width:min(92vw,520px);display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  .ctl{
+    background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:9px;
+    padding:9px 16px;font-size:13px;cursor:pointer;font-family:inherit;transition:.15s
+  }
+  .ctl:hover{color:var(--ink);border-color:rgba(255,255,255,.28);background:rgba(255,255,255,.04)}
+
+  .legend{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:min(92vw,520px);font-size:11px;color:var(--muted)}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+  .float{
+    position:absolute;pointer-events:none;font-weight:700;color:#b9f5d0;
+    font-size:15px;text-shadow:0 2px 12px rgba(0,0,0,.8);animation:rise .8s ease-out forwards;
+  }
+  @keyframes rise{to{transform:translateY(-42px);opacity:0}}
+</style>
+</head>
+<body>
+
+<div class="head">
+  <div>
+    <h1>元素周期表同族三消</h1>
+    <div class="sub">同族相连 3 个即可消除</div>
+  </div>
+  <div class="score"><b id="score">0</b><span>SCORE</span></div>
+</div>
+
+<div class="wrap">
+  <div class="grid" id="grid"></div>
+</div>
+
+<div class="bar">
+  <button class="ctl" id="colorToggle">颜色提示：开</button>
+  <button class="ctl" id="hint">提示</button>
+  <button class="ctl" id="shuffle">洗牌</button>
+  <button class="ctl" id="restart">重开</button>
+</div>
+
+<div class="legend" id="legend"></div>
+
+<script>
+"use strict";
+
+/* 6 个族，每族 3 个元素 */
+const GROUPS = [
+  { name:'碱金属',   color:'#ff8a6b', els:[['Li',3],['Na',11],['K',19]] },
+  { name:'卤素',     color:'#58d68d', els:[['F',9],['Cl',17],['Br',35]] },
+  { name:'稀有气体', color:'#b07cff', els:[['He',2],['Ne',10],['Ar',18]] },
+  { name:'过渡金属', color:'#5b8def', els:[['Fe',26],['Cu',29],['Zn',30]] },
+  { name:'氧族',     color:'#f5c542', els:[['O',8],['S',16],['Se',34]] },
+  { name:'碳族',     color:'#9aa5b5', els:[['C',6],['Si',14],['Sn',50]] },
+];
+
+const N = 8;
+const gridEl = document.getElementById('grid');
+const scoreEl = document.getElementById('score');
+
+let cells = new Array(N * N).fill(null);   // {g, el, z}
+let sel = -1, score = 0, busy = false, hintPair = null;
+
+const rc = i => [Math.floor(i / N), i % N];
+const idx = (r, c) => r * N + c;
+
+function randTile() {
+  const g = Math.floor(Math.random() * GROUPS.length);
+  const [el, z] = GROUPS[g].els[Math.floor(Math.random() * GROUPS[g].els.length)];
+  return { g, el, z };
+}
+
+/* ------------------------------------------------------------ 棋盘生成 */
+function initBoard() {
+  for (let i = 0; i < N * N; i++) cells[i] = randTile();
+  let guard = 0;
+  while (findMatches().size && guard++ < 200) {
+    findMatches().forEach(i => { cells[i] = randTile(); });
+  }
+  if (!hasMove()) initBoard();
+}
+
+function findMatches() {
+  const hit = new Set();
+  // 行
+  for (let r = 0; r < N; r++) {
+    let run = 1;
+    for (let c = 1; c <= N; c++) {
+      const cur = c < N ? cells[idx(r, c)] : null;
+      const prev = cells[idx(r, c - 1)];
+      if (cur && prev && cur.g === prev.g) run++;
+      else {
+        if (run >= 3) for (let k = c - run; k < c; k++) hit.add(idx(r, k));
+        run = 1;
+      }
+    }
+  }
+  // 列
+  for (let c = 0; c < N; c++) {
+    let run = 1;
+    for (let r = 1; r <= N; r++) {
+      const cur = r < N ? cells[idx(r, c)] : null;
+      const prev = cells[idx(r - 1, c)];
+      if (cur && prev && cur.g === prev.g) run++;
+      else {
+        if (run >= 3) for (let k = r - run; k < r; k++) hit.add(idx(k, c));
+        run = 1;
+      }
+    }
+  }
+  return hit;
+}
+
+function swapCells(a, b) { const t = cells[a]; cells[a] = cells[b]; cells[b] = t; }
+
+function hasMove() {
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      for (const [dr, dc] of [[0, 1], [1, 0]]) {
+        const r2 = r + dr, c2 = c + dc;
+        if (r2 >= N || c2 >= N) continue;
+        const a = idx(r, c), b = idx(r2, c2);
+        swapCells(a, b);
+        const ok = findMatches().size > 0;
+        swapCells(a, b);
+        if (ok) return [a, b];
+      }
+    }
+  }
+  return null;
+}
+
+/* ---------------------------------------------------------------- 渲染 */
+function render(popSet) {
+  gridEl.innerHTML = '';
+  cells.forEach((t, i) => {
+    const d = document.createElement('div');
+    d.className = 'tile g' + t.g;
+    if (i === sel) d.classList.add('sel');
+    if (hintPair && (i === hintPair[0] || i === hintPair[1])) d.classList.add('hint');
+    if (popSet && popSet.has(i)) d.classList.add('pop');
+    d.innerHTML = '<span class="sym">' + t.el + '</span><span class="num">' + t.z + '</span>';
+    d.onclick = () => onTile(i);
+    gridEl.appendChild(d);
+  });
+}
+
+function updateScore(v) {
+  score = v;
+  scoreEl.textContent = v.toLocaleString();
+}
+
+/* ---------------------------------------------------------------- 交互 */
+function onTile(i) {
+  if (busy) return;
+  hintPair = null;
+  if (sel === -1) { sel = i; render(); return; }
+  if (sel === i) { sel = -1; render(); return; }
+  const [r1, c1] = rc(sel), [r2, c2] = rc(i);
+  if (Math.abs(r1 - r2) + Math.abs(c1 - c2) !== 1) { sel = i; render(); return; }
+
+  const a = sel, b = i;
+  sel = -1;
+  swapCells(a, b);
+  render();
+  busy = true;
+  setTimeout(() => {
+    if (findMatches().size === 0) {
+      swapCells(a, b);
+      render();
+      busy = false;
+    } else {
+      resolve();
+    }
+  }, 150);
+}
+
+function resolve(chain) {
+  chain = chain || 0;
+  const hit = findMatches();
+  if (!hit.size) { busy = false; if (!hasMove()) doShuffle(); return; }
+
+  chain++;
+  // 同族计数 + 同元素加成
+  const perGroup = {};
+  hit.forEach(i => { perGroup[cells[i].g] = (perGroup[cells[i].g] || 0) + 1; });
+  let gain = 0;
+  hit.forEach(i => { gain += 10; });
+
+  // 若整条线全是同一个元素，给 1.5 倍
+  const els = new Set();
+  hit.forEach(i => els.add(cells[i].el));
+  const sameEl = els.size === 1;
+  gain = Math.round(gain * (sameEl ? 1.5 : 1) * chain * (colorHint ? 1 : 1.5));
+
+  updateScore(score + gain);
+  showFloat(hit, gain);
+
+  render(hit);
+  setTimeout(() => {
+    hit.forEach(i => { cells[i] = null; });
+    dropAndFill();
+    render();
+    setTimeout(() => resolve(chain), 130);
+  }, 210);
+}
+
+function dropAndFill() {
+  for (let c = 0; c < N; c++) {
+    let write = N - 1;
+    for (let r = N - 1; r >= 0; r--) {
+      const i = idx(r, c);
+      if (cells[i]) { cells[idx(write, c)] = cells[i]; if (write !== r) cells[i] = null; write--; }
+    }
+    for (let r = write; r >= 0; r--) cells[idx(r, c)] = randTile();
+  }
+}
+
+function showFloat(hit, gain) {
+  const first = [...hit][0];
+  const [r, c] = rc(first);
+  const rect = gridEl.getBoundingClientRect();
+  const cellW = rect.width / N, cellH = rect.height / N;
+  const el = document.createElement('div');
+  el.className = 'float';
+  el.textContent = '+' + gain;
+  el.style.left = (c * cellW + cellW / 2 - 12) + 'px';
+  el.style.top = (r * cellH + 4) + 'px';
+  gridEl.parentElement.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
+
+function doShuffle() {
+  initBoard();
+  render();
+}
+
+/* ------------------------------------------------------------------ 按钮 */
+document.getElementById('hint').onclick = () => {
+  if (busy) return;
+  const pair = hasMove();
+  if (!pair) { doShuffle(); return; }
+  hintPair = pair;
+  render();
+  setTimeout(() => { hintPair = null; render(); }, 2200);
+};
+document.getElementById('shuffle').onclick = () => { if (!busy) doShuffle(); };
+document.getElementById('restart').onclick = () => {
+  initBoard(); sel = -1; updateScore(0); render();
+};
+
+/* ------------------------------------------------------------------ 颜色模式 */
+// localStorage 在 file:// 或禁用存储的环境里会抛异常，必须包起来，
+// 否则一句失败会让后面整个游戏脚本都不执行。
+const store = {
+  get(k, d) {
+    try { const v = localStorage.getItem(k); return v === null ? d : v; }
+    catch (e) { return d; }
+  },
+  set(k, v) {
+    try { localStorage.setItem(k, v); } catch (e) { /* 忽略 */ }
+  }
+};
+
+// 默认无色模式：靠周期表知识判断同族
+// 用新键名，避免旧版本存下的"开"覆盖新的默认值
+let colorHint = store.get('pm3-color-v2', '0') === '1';
+if (location.hash === '#nocolor') colorHint = false;
+const colorBtn = document.getElementById('colorToggle');
+
+function applyColorMode() {
+  gridEl.classList.toggle('nocolor', !colorHint);
+  legend.classList.toggle('nocolor', !colorHint);
+  if (colorBtn) {
+    colorBtn.textContent = '颜色提示：' + (colorHint ? '开' : '关');
+    colorBtn.classList.toggle('on', !colorHint);
+    colorBtn.title = colorHint ? '点击关闭颜色提示，分数 ×1.5' : '已关闭，分数 ×1.5';
+  }
+  const sub = document.querySelector('.sub');
+  if (sub) {
+    sub.textContent = colorHint
+      ? '同族相连 3 个即可消除'
+      : '无色模式 · 靠周期表知识认族 · 分数 ×1.5';
+  }
+}
+if (colorBtn) {
+  colorBtn.onclick = () => {
+    colorHint = !colorHint;
+    store.set('pm3-color-v2', colorHint ? '1' : '0');
+    applyColorMode();
+  };
+}
+
+/* ------------------------------------------------------------------ 图例 */
+const legend = document.getElementById('legend');
+GROUPS.forEach(g => {
+  const s = document.createElement('span');
+  s.innerHTML = '<i style="background:' + g.color + '"></i>' + g.name;
+  legend.appendChild(s);
+});
+
+initBoard();
+render();
+applyColorMode();
+
+/* --------------------------------------------------- 自检（#selftest） */
+if (location.hash === '#selftest') {
+  const res = [];
+  const ok = (name, cond) => res.push((cond ? 'PASS ' : 'FAIL ') + name);
+
+  cells = Array.from({ length: N * N }, () => randTile());
+  cells[0] = { g: 0, el: 'Li', z: 3 };
+  cells[1] = { g: 0, el: 'Na', z: 11 };
+  cells[2] = { g: 0, el: 'K', z: 19 };
+  const m1 = findMatches();
+  ok('row3', m1.has(0) && m1.has(1) && m1.has(2));
+
+  cells = Array.from({ length: N * N }, () => randTile());
+  cells[0] = { g: 2, el: 'He', z: 2 };
+  cells[8] = { g: 2, el: 'Ne', z: 10 };
+  cells[16] = { g: 2, el: 'Ar', z: 18 };
+  const m2 = findMatches();
+  ok('col3', m2.has(0) && m2.has(8) && m2.has(16));
+
+  cells = Array.from({ length: N * N }, () => randTile());
+  cells[0] = { g: 1, el: 'F', z: 9 };
+  cells[1] = { g: 1, el: 'Cl', z: 17 };
+  ok('pair2', !findMatches().has(0));
+
+  cells = Array.from({ length: N * N }, () => randTile());
+  cells[idx(0, 0)] = null;
+  cells[idx(3, 0)] = null;
+  const before = cells[idx(7, 0)].el;
+  dropAndFill();
+  ok('noHole', cells.every(Boolean));
+  ok('bottomKept', cells[idx(7, 0)].el === before);
+
+  initBoard();
+  ok('hasMove', !!hasMove());
+  ok('cleanStart', findMatches().size === 0);
+
+  // 无色模式开关
+  const was = colorHint;
+  colorHint = false; applyColorMode();
+  ok('nocolorOn', gridEl.classList.contains('nocolor') &&
+                  colorBtn.textContent.indexOf('关') >= 0);
+  colorHint = true; applyColorMode();
+  ok('nocolorOff', !gridEl.classList.contains('nocolor'));
+  colorHint = was; applyColorMode();
+
+  const box = document.createElement('div');
+  box.id = 'selftest-out';
+  document.body.appendChild(box);
+
+  const show = () => {
+    box.textContent = res.join(' | ');
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'position:fixed;inset:0;background:#0a0e14;color:#e8ecf4;' +
+      'font:600 20px/1.9 monospace;padding:36px;z-index:999;margin:0;white-space:pre-wrap';
+    pre.textContent = res.join('\n');
+    document.body.appendChild(pre);
+  };
+
+  // 端到端：模拟真实点击交换，验证能否消掉并加分
+  setTimeout(() => {
+    cells = [];
+    for (let i = 0; i < N * N; i++) {
+      const g = i % 2;
+      cells.push({ g, el: GROUPS[g].els[0][0], z: GROUPS[g].els[0][1] });
+    }
+    cells[0] = { g: 4, el: 'O', z: 8 };
+    cells[1] = { g: 4, el: 'S', z: 16 };
+    cells[2] = { g: 5, el: 'C', z: 6 };      // 待交换下来
+    cells[10] = { g: 4, el: 'Se', z: 34 };    // 换上去构成三连
+    sel = -1; busy = false; updateScore(0);
+    render();
+
+    onTile(2);        // 选中
+    ok('clickSelect', sel === 2);
+    onTile(10);       // 交换
+
+    setTimeout(() => {
+      ok('swapCleared', score > 0);
+      ok('boardFilled', cells.every(Boolean));
+      show();
+    }, 1400);
+  }, 60);
+}
+</script>
+</body>
+</html>
